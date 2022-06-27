@@ -74,8 +74,10 @@ class SimpleJoinModel(torch.nn.Module):
         self,
         left: torch.Tensor,
         right: torch.Tensor,
-        left_on: int,
-        right_on: int,
+        # WORKAROUND: Torch jit doesn't compile with `si64` arguments (they need to be `Tensor`'s)
+        # As a result, we hardcode them to 0 for now.
+        left_on: int = 0,
+        right_on: int = 0,
         val_can_be_null: bool = False,
     ):
         """Performs a join_operator
@@ -174,6 +176,25 @@ def main(args):
             f"expected_np =\n{expected_np}\n"
         )
     log.info("SUCCESS!")
+
+    log.info("Tracing with Torch JIT")
+    example_input = (o_cols, l_cols)
+    traced = torch.jit.trace(join_model, example_input)
+    log.info("Compiling with Torch-MLIR")
+    linalg_on_tensors_mlir = torch_mlir.compile(traced, example_input, output_type=torch_mlir.OutputType.LINALG_ON_TENSORS)
+
+    log.info("Compiling with IREE")
+    iree_vmfb = iree_torch.compile_to_vmfb(linalg_on_tensors_mlir, args.iree_backend)
+    log.info("Loading in IREE")
+    invoker = iree_torch.load_vmfb(iree_vmfb, args.iree_backend)
+
+    log.info("Running on IREE")
+    import time
+    start = time.time()
+    result = invoker.forward(example_input)
+    end = time.time()
+    print("RESULT:", result)
+    print(f"Model execution took {end - start} seconds.")
 
 
 if __name__ == "__main__":
