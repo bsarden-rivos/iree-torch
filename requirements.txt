@@ -16,3 +16,7 @@ torch-mlir
 torch
 torchvision
 numpy
+
+# Pandas Join
+pandas
+pyarrow  # For `pd.read_parquet`
